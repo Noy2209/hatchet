@@ -444,6 +444,7 @@ func runV0Config(ctx context.Context, sc *server.ServerConfig, cleanup *cleanup.
 			dispatcher.WithVersion(sc.Version),
 			dispatcher.WithAnalytics(sc.Analytics),
 			dispatcher.WithPrometheusGate(sc.PrometheusGate),
+			dispatcher.WithDoorbell(newDispatcherDoorbell(sc)),
 		)
 
 		if err != nil {
@@ -984,6 +985,7 @@ func runV1Config(ctx context.Context, sc *server.ServerConfig, cleanup *cleanup.
 			dispatcher.WithVersion(sc.Version),
 			dispatcher.WithAnalytics(sc.Analytics),
 			dispatcher.WithPrometheusGate(sc.PrometheusGate),
+			dispatcher.WithDoorbell(newDispatcherDoorbell(sc)),
 			dispatcher.WithDirectTaskWriter(directTaskWriter),
 		)
 
@@ -1265,6 +1267,17 @@ func isControllerActive(pausedControllers map[string]bool, controllerName Contro
 // newDirectTaskWriter returns nil unless direct task writes are enabled. The handler it wraps is the
 // task controller's, built with the controller's settings, so worker events applied in the gRPC process
 // behave the same as when the controller consumes them from the task queue.
+func newDispatcherDoorbell(sc *server.ServerConfig) *dispatcher.DoorbellOpts {
+	if !sc.Runtime.DispatcherDoorbellEnabled {
+		return nil
+	}
+
+	return &dispatcher.DoorbellOpts{
+		PullInterval: sc.Runtime.DispatcherPullInterval,
+		PullGrace:    sc.Runtime.DispatcherPullGrace,
+	}
+}
+
 func newDirectTaskWriter(sc *server.ServerConfig) (*directwrite.Writer, error) {
 	if !sc.Runtime.DirectTaskWritesEnabled {
 		return nil, nil

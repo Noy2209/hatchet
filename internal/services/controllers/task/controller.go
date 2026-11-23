@@ -224,7 +224,19 @@ func NewMessageHandler(fs ...TasksControllerOpt) (msgqueue.DstFunc, error) {
 		return nil, err
 	}
 
+	// the dispatcher's direct writes commit task completions in this process, so it drains the outbox
+	// too: its kicks then reach a running loop even when no task controller runs here
+	t.startInternalEventOutbox()
+
 	return t.handleBufferedMsgs, nil
+}
+
+// startInternalEventOutbox runs for the life of the process: the outbox starts its loops once, for
+// whichever controller asks first, and a controller that stops would otherwise stop them for both.
+func (tc *TasksControllerImpl) startInternalEventOutbox() {
+	if ob := tc.repov1.InternalEventOutbox(); ob != nil {
+		ob.Start(context.Background(), tc.processInternalEvents)
+	}
 }
 
 // newTasksController builds the parts of the controller that its message handlers use. The
@@ -386,6 +398,8 @@ func New(fs ...TasksControllerOpt) (*TasksControllerImpl, error) {
 
 func (tc *TasksControllerImpl) Start() (func() error, error) {
 	mqBuffer := msgqueue.NewMQSubBuffer(msgqueue.TASK_PROCESSING_QUEUE, tc.mq, tc.handleBufferedMsgs)
+
+	tc.startInternalEventOutbox()
 
 	tc.s.Start()
 
@@ -799,7 +813,9 @@ func (tc *TasksControllerImpl) handleTaskCompleted(ctx context.Context, tenantId
 		return err
 	}
 
-	if err := tc.signaler.SendInternalEvents(ctx, tenantId, res.InternalEvents); err != nil {
+	if res.InternalEventsOutboxed {
+		tc.repov1.InternalEventOutbox().Kick(tenantId)
+	} else if err := tc.signaler.SendInternalEvents(ctx, tenantId, res.InternalEvents); err != nil {
 		return err
 	}
 
